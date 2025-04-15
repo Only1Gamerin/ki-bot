@@ -1,6 +1,6 @@
 import requests
 import time
-from flask import Flask, request
+from flask import Flask
 import threading
 
 # === CONFIG ===
@@ -11,7 +11,6 @@ MODEL = "gpt-3.5-turbo"  # Neuer Modellname
 # Variable, um den Bot zu steuern
 bot_active = True  # Der Bot ist standardmäßig aktiv
 
-app = Flask(__name__)
 
 # === Telegram Funktionen ===
 def send_telegram(chat_id, text):
@@ -58,12 +57,11 @@ def ask_openrouter(prompt):
         res = requests.post("https://openrouter.ai/api/v1/chat/completions",
                             headers=headers,
                             json=data)
-        res.raise_for_status()
+        res.raise_for_status()  # Wenn der Statuscode nicht OK ist, wird eine Ausnahme ausgelöst
         response_data = res.json()
         return response_data['choices'][0]['message']['content'].strip()
     except requests.exceptions.RequestException as e:
         print(f"API-Fehler: {e}")
-        print("Antwort des Servers:", res.text)  # Gebe die Fehlermeldung aus
         return "❌ Fehler bei der KI-Antwort"
 
 
@@ -107,63 +105,18 @@ def handle_command(chat_id, user_msg):
     return True
 
 
-# === Webserver-Routen ===
-@app.route('/')
-def home():
-    return "Bot läuft und ist aktiv!"
-
-
-# === Webhook für Telegram ===
-@app.route('/webhook', methods=["POST"])
-def webhook():
-    data = request.get_json()
-
-    if "message" in data and "text" in data["message"]:
-        chat_id = data["message"]["chat"]["id"]
-        user_msg = data["message"]["text"]
-
-        print(f"[{chat_id}] Nutzer: {user_msg}")
-
-        if not bot_active:
-            return '', 200  # Wenn der Bot nicht aktiv ist, ignoriere alle Nachrichten
-
-        # Wenn der Nutzer einen Befehl sendet, behandeln wir diesen
-        if handle_command(chat_id, user_msg):
-            return '', 200
-
-        # Andernfalls antwortet die KI
-        response = ask_openrouter(user_msg)
-        send_telegram(chat_id, response)
-
-    return '', 200
-
-
 # === Funktion für das regelmäßige "Ping" an den Webserver ===
 def keep_alive():
     while True:
         try:
             # Hier kannst du deinen Webserver regelmäßig pingen, um die Aktivität zu behalten
-            requests.get("http://127.0.0.1:5000/")
             time.sleep(30 * 60)  # Ping alle 30 Minuten (z.B. bei Replit, um den Timeout zu vermeiden)
         except requests.exceptions.RequestException as e:
             print(f"Fehler beim Pingen: {e}")
             time.sleep(60)  # Falls ein Fehler auftritt, warte eine Minute und versuche es erneut
 
 
-# === Funktion zum Einrichten des Webhooks bei Telegram ===
-def set_webhook():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url=https://<dein-vercel-link>/webhook"
-    try:
-        res = requests.get(url)
-        if res.ok:
-            print("Webhook erfolgreich gesetzt.")
-        else:
-            print(f"Fehler beim Setzen des Webhooks: {res.text}")
-    except requests.exceptions.RequestException as e:
-        print(f"Fehler beim Setzen des Webhooks: {e}")
-
-
-# === Hauptloop für Telegram-Updates (falls Webhook nicht funktioniert) ===
+# === Hauptloop für Telegram-Updates ===
 def main():
     offset = 0
     print("🤖 KI-Bot läuft...")
@@ -194,11 +147,8 @@ def main():
 
 # === Start des Programms ===
 if __name__ == "__main__":
-    # Starte den Webserver in einem eigenen Thread
+    # Starte den "Ping" Mechanismus in einem eigenen Thread (Falls nötig)
     threading.Thread(target=keep_alive).start()
 
-    # Setze den Webhook bei Telegram
-    set_webhook()
-
-    # Starte den Webserver (für Vercel)
-    app.run(host="0.0.0.0", port=5000)
+    # Starte den Telegram-Bot
+    main()
